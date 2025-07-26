@@ -3,7 +3,8 @@ version: 1.0.0
 
 # Build configuration
 build:
-  buildpack: tabletalk-nextjs
+  buildpacks:
+    - heroku/nodejs
   dockerfile: Dockerfile
   context: .
 
@@ -25,4 +26,3 @@ health:
   timeout: 30s
   interval: 10s
   retries: 3
-
