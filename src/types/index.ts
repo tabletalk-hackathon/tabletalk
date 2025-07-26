@@ -42,7 +42,7 @@ export interface LLMRankingResponse {
 export interface CallLog {
   restaurantName: string;
   phoneNumber: string;
-  status: 'dialing' | 'connected' | 'requesting' | 'confirmed' | 'declined';
+  status: 'dialing' | 'connected' | 'requesting' | 'confirmed' | 'declined' | 'failed';
   conversation: string[];
   timestamp: string;
 }
