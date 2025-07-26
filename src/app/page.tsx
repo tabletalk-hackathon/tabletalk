@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { locationService } from '@/services/locationService';
 import { userProfileService } from '@/services/userProfileService';
 import { llmService } from '@/services/llmService';
-import { mockRestaurants } from '@/data/restaurants';
+import { restaurantService } from '@/services/restaurantService';
 import { LocationData, UserProfile, LLMRankingResponse } from '@/types';
 import { logger } from '@/utils/logger';
 
@@ -36,22 +36,27 @@ export default function LandingPage() {
         userProfileService.saveProfile(userProfile);
       }
 
-      // Step 3: Update restaurant distances based on actual location
+      // Step 3: Find nearby restaurants using OSM data
       setLoadingMessage('Finding nearby restaurants...');
-      const restaurantsWithDistance = mockRestaurants.map(restaurant => ({
-        ...restaurant,
-        distanceFromUser: locationService.calculateDistance(
-          location.latitude,
-          location.longitude,
-          restaurant.coordinates.lat,
-          restaurant.coordinates.lng
-        )
-      }));
+      const restaurants = await restaurantService.getRestaurantsWithFallback(
+        location,
+        1000, // 1km radius
+        20    // limit to 20 restaurants
+      );
+
+      // Log restaurant statistics for debugging
+      const stats = restaurantService.getRestaurantStats(restaurants);
+      logger.search('Restaurant search completed', {
+        total: stats.total,
+        averageDistance: `${stats.averageDistance.toFixed(1)}km`,
+        cuisineTypes: Object.keys(stats.cuisineTypes).length,
+        priceRanges: stats.priceRanges
+      });
 
       // Step 4: Get LLM ranking
       setLoadingMessage('Analyzing your preferences...');
       const rankingResponse: LLMRankingResponse = await llmService.rankRestaurants(
-        restaurantsWithDistance,
+        restaurants,
         userProfile,
         location
       );
@@ -141,9 +146,9 @@ export default function LandingPage() {
         BOOK
       </button>
 
-      <div className="mt-8 bg-yellow-50 border border-yellow-200 rounded-lg p-4 max-w-md">
-        <p className="text-sm text-yellow-800">
-          <strong>Demo Mode:</strong> This app uses mock data and simulated restaurant calls for demonstration purposes.
+      <div className="mt-8 bg-green-50 border border-green-200 rounded-lg p-4 max-w-md">
+        <p className="text-sm text-green-800">
+          <strong>Live Mode:</strong> This app now uses real restaurant data from OpenStreetMap! Restaurant calls are still simulated for demo purposes.
         </p>
       </div>
     </div>
