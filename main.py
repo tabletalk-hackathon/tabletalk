@@ -10,6 +10,8 @@ import asyncio
 import subprocess
 from pathlib import Path
 import httpx
+import logging
+import argparse
 
 def load_env_file(filename=".env"):
     """Load environment variables from .env file directly"""
@@ -24,6 +26,18 @@ def load_env_file(filename=".env"):
                     key, value = line.split('=', 1)
                     env_vars[key.strip()] = value.strip().strip('"').strip("'")
     return env_vars
+
+def setup_logging(log_level='INFO'):
+    """Configure logging with specified level"""
+    level = getattr(logging, log_level.upper(), logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler()
+        ]
+    )
+    return logging.getLogger(__name__)
 
 # Load environment variables from .env file
 env_vars = load_env_file()
@@ -42,9 +56,9 @@ class MCPOSMClient:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            print("✅ Connected to MCP OSM server")
+            logger.info("✅ Connected to MCP OSM server")
         except Exception as e:
-            print(f"❌ Failed to connect to MCP server: {e}")
+            logger.error(f"❌ Failed to connect to MCP server: {e}")
             return False
         return True
     
@@ -65,14 +79,14 @@ class MCPOSMClient:
         }
         
         request_json = json.dumps(request) + '\n'
-        print(f"📤 Sending: {request_json.strip()}")
+        logger.debug(f"📤 Sending: {request_json.strip()}")
         self.process.stdin.write(request_json.encode())
         await self.process.stdin.drain()
         
         # Read response
         response_line = await self.process.stdout.readline()
         response = json.loads(response_line.decode())
-        print(f"📥 Received: {json.dumps(response, indent=2)}")
+        logger.debug(f"📥 Received: {json.dumps(response, indent=2)}")
         return response
     
     async def initialize(self):
@@ -97,7 +111,7 @@ class MCPOSMClient:
                 "params": {}
             }
             notification_json = json.dumps(initialized_notification) + '\n'
-            print(f"📤 Sending notification: {notification_json.strip()}")
+            logger.debug(f"📤 Sending notification: {notification_json.strip()}")
             self.process.stdin.write(notification_json.encode())
             await self.process.stdin.drain()
         
@@ -124,7 +138,7 @@ class MistralClient:
     def __init__(self, env_vars):
         self.api_key = env_vars.get("MISTRAL_API_KEY")
         if not self.api_key:
-            print("⚠️  MISTRAL_API_KEY not found in .env file - skipping Mistral integration")
+            logger.warning("⚠️  MISTRAL_API_KEY not found in .env file - skipping Mistral integration")
             self.api_key = None
         
         self.base_url = "https://api.mistral.ai/v1"
@@ -158,30 +172,30 @@ async def main():
             return
         
         # Initialize MCP connection
-        print("🔌 Initializing MCP connection...")
+        logger.info("🔌 Initializing MCP connection...")
         init_response = await osm_client.initialize()
-        print(f"Initialization: {init_response}")
+        logger.debug(f"Initialization: {init_response}")
         
         # List available tools
-        print("🛠️  Listing available tools...")
+        logger.info("🛠️  Listing available tools...")
         tools_response = await osm_client.list_tools()
         
         available_tools = tools_response.get('result', {}).get('tools', [])
-        print(f"Available tools ({len(available_tools)}):")
+        logger.info(f"Available tools ({len(available_tools)}):")
         for tool in available_tools:
-            print(f"  - {tool['name']}: {tool.get('description', 'No description')}")
+            logger.info(f"  - {tool['name']}: {tool.get('description', 'No description')}")
         
         if not available_tools:
-            print("❌ No tools available - something might be wrong with the MCP server")
+            logger.error("❌ No tools available - something might be wrong with the MCP server")
             return
         
         # Use hardcoded coordinates: 52°21'40.8"N 4°55'05.1"E
         lat = 52.3613333  # 52°21'40.8"N
         lon = 4.9180833   # 4°55'05.1"E
-        print(f"📍 Using coordinates: {lat}, {lon}")
+        logger.info(f"📍 Using coordinates: {lat}, {lon}")
         
         # Find nearby restaurants
-        print("🍽️  Finding nearby restaurants...")
+        logger.info("🍽️  Finding nearby restaurants...")
         restaurants_response = await osm_client.call_tool(
             "find_nearby_places",
             {
@@ -198,49 +212,68 @@ async def main():
             
             # Filter for restaurants specifically
             restaurants = []
-            if 'amenity' in places_data.get('results', {}):
-                for subcategory, places in places_data['results']['amenity'].items():
+            if 'amenity' in places_data.get('categories', {}):
+                for subcategory, places in places_data['categories']['amenity'].items():
                     if subcategory in ['restaurant', 'cafe', 'fast_food', 'bar', 'pub']:
                         restaurants.extend(places)
             
-            print(f"🍴 Found {len(restaurants)} restaurants:")
-            for restaurant in restaurants[:5]:  # Show first 5
-                name = restaurant.get('name', 'Unnamed restaurant')
-                cuisine = restaurant.get('tags', {}).get('cuisine', 'Unknown cuisine')
-                print(f"  - {name} ({cuisine})")
             
-            # Ask Mistral to analyze the restaurants (if API key available)
-            if mistral_client.api_key and restaurants:
-                messages = [
-                    {
-                        "role": "user",
-                        "content": f"""
-                        Here are some restaurants near coordinates {lat}, {lon}:
-                        {json.dumps(restaurants[:5], indent=2)}
-                        
-                        Provide a brief recommendation about which restaurant might be most interesting to visit and why.
-                        """
-                    }
-                ]
+            # Enhance restaurants with phone and website info
+            enhanced_restaurants = []
+            for restaurant in restaurants:
+                # Extract phone and website from tags
+                tags = restaurant.get('tags', {})
+                phone = tags.get('phone') or tags.get('contact:phone')
+                website = tags.get('website') or tags.get('contact:website')
                 
-                print("\n🤖 Asking Mistral to analyze the restaurants...")
-                mistral_response = await mistral_client.chat_completion(messages)
-                
-                if 'choices' in mistral_response and mistral_response['choices']:
-                    analysis = mistral_response['choices'][0]['message']['content']
-                    print(f"\n📝 Mistral's Restaurant Recommendation:\n{analysis}")
-                else:
-                    print("❌ Failed to get response from Mistral")
-            else:
-                print("\n💡 Skipping Mistral analysis (no API key provided or no restaurants found)")
+                # Add phone and website to restaurant data
+                enhanced_restaurant = restaurant.copy()
+                enhanced_restaurant['phone'] = phone
+                enhanced_restaurant['website'] = website
+                enhanced_restaurants.append(enhanced_restaurant)
+            
+            result = {
+                "status": "success",
+                "location": {
+                    "latitude": lat,
+                    "longitude": lon
+                },
+                "restaurants_found": len(enhanced_restaurants),
+                "restaurants": enhanced_restaurants
+            }
+            
+            print(json.dumps(result, indent=2))
+            return result
         else:
-            print("❌ Failed to find nearby restaurants")
+            result = {
+                "status": "success",
+                "location": {
+                    "latitude": lat,
+                    "longitude": lon
+                },
+                "restaurants_found": 0,
+                "restaurants": []
+            }
+            print(json.dumps(result, indent=2))
+            return result
             
     except Exception as e:
-        print(f"❌ Error: {e}")
+        result = {
+            "status": "error",
+            "error": str(e)
+        }
+        print(json.dumps(result, indent=2))
+        return result
     finally:
         # Clean up
         await osm_client.close()
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='MCP OSM server client with Mistral AI integration')
+    parser.add_argument('--log-level', default='INFO', 
+                       choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+                       help='Set the logging level (default: INFO)')
+    args = parser.parse_args()
+    
+    logger = setup_logging(args.log_level)
     asyncio.run(main())
