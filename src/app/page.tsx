@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { locationService } from '@/services/locationService';
 import { userProfileService } from '@/services/userProfileService';
 import { llmService } from '@/services/llmService';
-import { mockRestaurants } from '@/data/restaurants';
+import { fetchNearbyRestaurants, mockRestaurants } from '@/data/restaurants';
 import { LocationData, UserProfile, LLMRankingResponse } from '@/types';
 import { logger } from '@/utils/logger';
 
@@ -36,22 +36,14 @@ export default function LandingPage() {
         userProfileService.saveProfile(userProfile);
       }
 
-      // Step 3: Update restaurant distances based on actual location
+      // Step 3: Fetch nearby restaurants from OSM
       setLoadingMessage('Finding nearby restaurants...');
-      const restaurantsWithDistance = mockRestaurants.map(restaurant => ({
-        ...restaurant,
-        distanceFromUser: locationService.calculateDistance(
-          location.latitude,
-          location.longitude,
-          restaurant.coordinates.lat,
-          restaurant.coordinates.lng
-        )
-      }));
+      const restaurants = await fetchNearbyRestaurants(location, 500, 15);
 
       // Step 4: Get LLM ranking
       setLoadingMessage('Analyzing your preferences...');
       const rankingResponse: LLMRankingResponse = await llmService.rankRestaurants(
-        restaurantsWithDistance,
+        restaurants,
         userProfile,
         location
       );
