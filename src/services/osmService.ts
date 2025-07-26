@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { OSMPlace, OSMSearchResult, EnhancedOSMPlace } from '@/types/osm';
+import { OSMPlace, OSMSearchResult, EnhancedOSMPlace, OverpassResponse, OverpassElement } from '@/types/osm';
 import { Restaurant } from '@/types';
 import { locationService } from './locationService';
 import { logger } from '@/utils/logger';
@@ -41,7 +41,7 @@ export class OSMService {
         timeout: 30000, // 30 second timeout
       });
 
-      const data = response.data;
+      const data = response.data as OverpassResponse;
       
       if (!data.elements || data.elements.length === 0) {
         logger.search('No restaurants found in the area');
@@ -88,7 +88,7 @@ export class OSMService {
   /**
    * Process Overpass API results and enhance with additional data
    */
-  private processOverpassResults(elements: any[], userLat: number, userLon: number): EnhancedOSMPlace[] {
+  private processOverpassResults(elements: OverpassElement[], userLat: number, userLon: number): EnhancedOSMPlace[] {
     return elements.map(element => {
       // Get coordinates (handle different element types)
       let lat: number, lon: number;
@@ -138,18 +138,18 @@ export class OSMService {
   /**
    * Build a readable address from OSM tags
    */
-  private buildAddress(tags: any): string {
+  private buildAddress(tags: OverpassElement['tags']): string {
     const parts: string[] = [];
     
-    if (tags['addr:housenumber'] && tags['addr:street']) {
+    if (tags?.['addr:housenumber'] && tags?.['addr:street']) {
       parts.push(`${tags['addr:street']} ${tags['addr:housenumber']}`);
-    } else if (tags['addr:street']) {
+    } else if (tags?.['addr:street']) {
       parts.push(tags['addr:street']);
     }
     
-    if (tags['addr:postcode'] && tags['addr:city']) {
+    if (tags?.['addr:postcode'] && tags?.['addr:city']) {
       parts.push(`${tags['addr:postcode']} ${tags['addr:city']}`);
-    } else if (tags['addr:city']) {
+    } else if (tags?.['addr:city']) {
       parts.push(tags['addr:city']);
     }
     
@@ -234,7 +234,7 @@ export class OSMService {
   /**
    * Estimate price range based on amenity type and tags
    */
-  private estimatePriceRange(amenityType?: string, tags?: any): '€' | '€€' | '€€€' {
+  private estimatePriceRange(amenityType?: string, tags?: OverpassElement['tags']): '€' | '€€' | '€€€' {
     // Check for explicit price information in tags
     if (tags?.['price:range']) {
       const priceRange = tags['price:range'].toLowerCase();
@@ -268,7 +268,7 @@ export class OSMService {
   /**
    * Extract dietary options from OSM tags
    */
-  private extractDietaryOptions(tags?: any): string[] {
+  private extractDietaryOptions(tags?: OverpassElement['tags']): string[] {
     const options: string[] = [];
     
     if (tags?.['diet:vegetarian'] === 'yes') options.push('vegetarian');
@@ -288,7 +288,7 @@ export class OSMService {
   /**
    * Determine ambiance type based on amenity and tags
    */
-  private determineAmbianceType(amenityType?: string, tags?: any): string {
+  private determineAmbianceType(amenityType?: string, tags?: OverpassElement['tags']): string {
     // Check for explicit ambiance tags
     if (tags?.atmosphere) {
       return tags.atmosphere;
