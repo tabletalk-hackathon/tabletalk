@@ -1,0 +1,28 @@
+name: tabletalk
+version: 1.0.0
+
+# Build configuration
+build:
+  buildpacks:
+    - heroku/nodejs
+  dockerfile: Dockerfile
+  context: .
+
+# Runtime configuration
+runtime:
+  port: 80
+  environment: production
+
+# Environment variables
+env:
+  NODE_ENV: production
+  PORT: 80
+  HOSTNAME: "0.0.0.0"
+
+# Health check
+health:
+  path: /
+  port: 80
+  timeout: 30s
+  interval: 10s
+  retries: 3
