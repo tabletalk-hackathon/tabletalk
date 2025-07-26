@@ -9,7 +9,7 @@ import { logger } from '@/utils/logger';
 export default function RestaurantSelectionPage() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [otherRestaurants, setOtherRestaurants] = useState<Restaurant[]>([]);
-  const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
+  const [selectedRestaurants, setSelectedRestaurants] = useState<Restaurant[]>([]);
   const [showOthers, setShowOthers] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
@@ -40,35 +40,47 @@ export default function RestaurantSelectionPage() {
   }, [router]);
 
   const handleRestaurantSelect = (restaurant: Restaurant) => {
-    setSelectedRestaurant(restaurant);
-    logger.search('Restaurant selected for booking', {
-      restaurant: restaurant.name,
-      cuisine: restaurant.cuisineType,
-      priceRange: restaurant.priceRange
+    setSelectedRestaurants(prev => {
+      const isSelected = prev.some(r => r.id === restaurant.id);
+      if (isSelected) {
+        // Remove restaurant if already selected
+        const updated = prev.filter(r => r.id !== restaurant.id);
+        logger.search('Restaurant deselected', {
+          restaurant: restaurant.name,
+          remainingCount: updated.length
+        });
+        return updated;
+      } else {
+        // Add restaurant to selection
+        const updated = [...prev, restaurant];
+        logger.search('Restaurant selected for booking', {
+          restaurant: restaurant.name,
+          cuisine: restaurant.cuisineType,
+          priceRange: restaurant.priceRange,
+          totalSelected: updated.length
+        });
+        return updated;
+      }
     });
   };
 
+  const isRestaurantSelected = (restaurant: Restaurant) => {
+    return selectedRestaurants.some(r => r.id === restaurant.id);
+  };
+
   const handleOkClick = async () => {
-    if (!selectedRestaurant || !userProfile) return;
+    if (selectedRestaurants.length === 0 || !userProfile) return;
 
     setIsLoading(true);
-    setLoadingMessage('Calling restaurants to make your reservation...');
+    setLoadingMessage('Calling selected restaurants to make your reservation...');
 
     try {
-      // Get the selected restaurant and the next 2 as backups
-      const restaurantsToCall = [selectedRestaurant];
-      
-      // Add other restaurants as backups (excluding the selected one)
-      const allRestaurants = [...restaurants, ...otherRestaurants];
-      const backupRestaurants = allRestaurants
-        .filter(r => r.id !== selectedRestaurant.id)
-        .slice(0, 2);
-      
-      restaurantsToCall.push(...backupRestaurants);
+      // Use only the selected restaurants for calling
+      const restaurantsToCall = [...selectedRestaurants];
 
-      logger.call('Starting booking process with selected restaurant and backups', {
-        primary: selectedRestaurant.name,
-        backups: backupRestaurants.map(r => r.name)
+      logger.call('Starting booking process with selected restaurants', {
+        selectedRestaurants: restaurantsToCall.map(r => r.name),
+        count: restaurantsToCall.length
       });
 
       const bookingResult = await callingService.callRestaurants(
@@ -82,7 +94,7 @@ export default function RestaurantSelectionPage() {
         sessionStorage.setItem('bookingDetails', JSON.stringify(bookingResult));
         router.push('/confirmation');
       } else {
-        setLoadingMessage('Sorry, no restaurants have availability tonight. Please try again later.');
+        setLoadingMessage('Sorry, none of the selected restaurants have availability tonight. Please try again later.');
         setTimeout(() => {
           setIsLoading(false);
           setLoadingMessage('');
@@ -101,7 +113,7 @@ export default function RestaurantSelectionPage() {
 
   const handleOtherClick = () => {
     setShowOthers(true);
-    setSelectedRestaurant(null);
+    setSelectedRestaurants([]);
     logger.search('User requested to see other restaurant options');
   };
 
@@ -143,7 +155,7 @@ export default function RestaurantSelectionPage() {
           <div
             key={restaurant.id}
             className={`card cursor-pointer transition-all duration-200 ${
-              selectedRestaurant?.id === restaurant.id
+              isRestaurantSelected(restaurant)
                 ? 'ring-2 ring-primary-500 bg-primary-50'
                 : 'hover:shadow-lg'
             }`}
@@ -152,12 +164,20 @@ export default function RestaurantSelectionPage() {
             <div className="flex items-start justify-between">
               <div className="flex-1">
                 <div className="flex items-center mb-2">
-                  <input
-                    type="checkbox"
-                    checked={selectedRestaurant?.id === restaurant.id}
-                    onChange={() => handleRestaurantSelect(restaurant)}
-                    className="mr-3 h-4 w-4 text-primary-600 rounded"
-                  />
+                  <div
+                    className="mr-3 flex items-center justify-center"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRestaurantSelect(restaurant);
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isRestaurantSelected(restaurant)}
+                      onChange={() => {}} // Controlled by onClick above
+                      className="h-4 w-4 text-primary-600 rounded focus:ring-2 focus:ring-primary-500 cursor-pointer"
+                    />
+                  </div>
                   <h3 className="text-lg font-semibold text-gray-900">
                     {restaurant.name}
                   </h3>
@@ -194,10 +214,10 @@ export default function RestaurantSelectionPage() {
       <div className="flex gap-4">
         <button
           onClick={handleOkClick}
-          disabled={!selectedRestaurant}
+          disabled={selectedRestaurants.length === 0}
           className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          OK
+          OK ({selectedRestaurants.length} selected)
         </button>
         
         {!showOthers && (
@@ -213,7 +233,7 @@ export default function RestaurantSelectionPage() {
           <button
             onClick={() => {
               setShowOthers(false);
-              setSelectedRestaurant(null);
+              setSelectedRestaurants([]);
             }}
             className="btn-secondary flex-1"
           >
@@ -224,8 +244,9 @@ export default function RestaurantSelectionPage() {
 
       <div className="mt-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
         <p className="text-sm text-gray-700">
-          <strong>How it works:</strong> Select a restaurant and click OK. We'll call your chosen restaurant first, 
-          and if they're fully booked, we'll automatically try other highly-rated options until we secure your table.
+          <strong>How it works:</strong> Select one or more restaurants using the checkboxes and click OK.
+          We'll call only the restaurants you've selected in order until we secure your table.
+          This gives you full control over which restaurants to contact.
         </p>
       </div>
     </div>
