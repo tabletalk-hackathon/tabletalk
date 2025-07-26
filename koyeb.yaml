@@ -54,11 +54,14 @@ git:
   branch: "main"
   tag: ""
   sha: ""
-  build_command: ""
-  run_command: ""
+  build_command: "npm ci && npm run build"
+  run_command: "npm start"
   no_deploy_on_push: false
   workdir: ""
   buildpack:
-    build_command: ""
-    run_command: ""
+    builder: "heroku/buildpacks:20"
+    buildpacks:
+      - "heroku/nodejs"
+    build_command: "npm ci && npm run build"
+    run_command: "npm start"
     privileged: false
